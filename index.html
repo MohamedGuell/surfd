@@ -23,7 +23,94 @@
   <meta name="twitter:image:alt" content="SURFD — Classic surf. In your browser. Simple grey surf ramps and angular snowy rocks on a dark slate background.">
   <title>Surfd — Classic surf</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%233e4637'/%3E%3Cpath d='M4 24L16 6L28 24Z' fill='%23b9cbb0'/%3E%3C/svg%3E">
+    <style>
+    /* Mode Solo optimisé et suppression des composants multijoueur */
+    .play-tabs, #play-tab-online, #play-online, #spectator-view, #menu-server-controls, #discord {
+      display: none !important;
+    }
+    #play-solo {
+      display: block !important;
+    }
+    canvas#game {
+      image-rendering: -webkit-optimize-contrast;
+      image-rendering: crisp-edges;
+    }
+  </style>
   <script>
+    // 1. Clamping DPR à 1.0 maximum pour fluidité plein écran (évite le lag 2K/4K)
+    try {
+      Object.defineProperty(window, 'devicePixelRatio', {
+        get: () => 1.0,
+        configurable: true
+      });
+    } catch(e) {}
+
+    // 2. Optimisation WebGL (désactive MSAA et passe en high-performance / desynchronized)
+    try {
+      const _origGetContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function(type, attributes) {
+        if (type === 'webgl' || type === 'webgl2') {
+          attributes = Object.assign({}, attributes, {
+            antialias: false,
+            powerPreference: 'high-performance',
+            desynchronized: true,
+            preserveDrawingBuffer: false,
+            stencil: false
+          });
+        }
+        return _origGetContext.call(this, type, attributes);
+      };
+    } catch(e) {}
+
+    // 3. Neutraliser WebSocket pour supprimer toute tentative réseau multijoueur
+    try {
+      window.WebSocket = class DummyWebSocket extends EventTarget {
+        constructor() {
+          super();
+          this.binaryType = 'arraybuffer';
+          this.readyState = 3;
+          setTimeout(() => {
+            this.dispatchEvent(new Event('error'));
+            this.dispatchEvent(new CloseEvent('close', { code: 1000, reason: 'Solo mode' }));
+          }, 10);
+        }
+        send() {}
+        close() {}
+      };
+    } catch(e) {}
+
+    // 4. Forcer profil Performance et framerate illimité dans localStorage
+    try {
+      let pref = JSON.parse(localStorage.getItem('surf.preferences.v3') || '{}');
+      pref.quality = 'performance';
+      pref.frameRateLimit = 0;
+      pref.showFps = true;
+      localStorage.setItem('surf.preferences.v3', JSON.stringify(pref));
+    } catch(e) {}
+
+    // 5. Basculer automatiquement sur Solo dès chargement du DOM
+    document.addEventListener('DOMContentLoaded', () => {
+      const soloTab = document.getElementById('play-tab-solo');
+      if (soloTab) {
+        soloTab.classList.add('selected');
+        soloTab.setAttribute('aria-selected', 'true');
+      }
+      const soloPage = document.getElementById('play-solo');
+      if (soloPage) {
+        soloPage.removeAttribute('hidden');
+        soloPage.style.display = 'block';
+      }
+      const onlinePage = document.getElementById('play-online');
+      if (onlinePage) {
+        onlinePage.setAttribute('hidden', '');
+        onlinePage.style.display = 'none';
+      }
+      const homeBtn = document.getElementById('home');
+      if (homeBtn) {
+        homeBtn.innerHTML = 'Maps (Solo) <span aria-hidden="true">›</span>';
+      }
+    });
+
     if (location.pathname.startsWith('/surfd')) {
       const base = document.createElement('base');
       base.href = '/surfd/';
@@ -83,7 +170,7 @@
       </div>
       <div class="menu-primary">
       <nav class="menu-actions" aria-label="Game menu">
-        <button id="home" class="lobby-nav-current" aria-current="page">Servers &amp; maps <span aria-hidden="true">›</span></button>
+        <button id="home" class="lobby-nav-current" aria-current="page">Maps (Solo) <span aria-hidden="true">›</span></button>
         <button id="play" class="button-primary" disabled>Loading map…</button>
         <button id="maps">Change map</button><button id="leave-map" class="sidebar-leave" hidden>Leave map</button>
         <button id="options">Settings</button>
@@ -177,16 +264,16 @@
     </section>
 
     <section id="map-picker" class="lobby-browser vgui-window" aria-labelledby="maps-title">
-      <header class="window-title"><span id="maps-title">Servers &amp; maps</span><span class="window-badge">SURF CLIENT / 01</span></header>
-      <div class="tabs play-tabs" role="tablist" aria-label="Play mode"><button id="play-tab-online" role="tab" class="selected" aria-selected="true" aria-controls="play-online">Online</button><button id="play-tab-solo" role="tab" aria-selected="false" aria-controls="play-solo" tabindex="-1">Solo</button></div>
-      <section id="play-solo" class="play-page" role="tabpanel" aria-labelledby="play-tab-solo" hidden>
+      <header class="window-title"><span id="maps-title">Maps (Solo)</span><span class="window-badge">SURF CLIENT / 01</span></header>
+      <div class="tabs play-tabs" role="tablist" aria-label="Play mode" style="display:none !important;"><button id="play-tab-online" role="tab" aria-selected="false" aria-controls="play-online">Online</button><button id="play-tab-solo" role="tab" class="selected" aria-selected="true" aria-controls="play-solo">Solo</button></div>
+      <section id="play-solo" class="play-page" role="tabpanel" aria-labelledby="play-tab-solo">
         <div class="browser-toolbar"><label class="search-box"><span>Find map</span><input id="map-search" type="search" placeholder="Name or author…" autocomplete="off"></label><label class="sort-box">Sort <select id="map-sort"><option value="collection">Collection</option><option value="recent">Recently added</option><option value="name">Name</option><option value="tier">Difficulty</option><option value="type">Course type</option></select></label></div>
         <div class="course-browser"><div class="course-directory"><div class="directory-heading"><span>Map</span><span>Type</span><span class="map-row-tier">Tier</span><span class="map-row-rank" title="Your position on this map’s verified leaderboard. Shared across Solo, EU and NA.">Your rank</span></div><div id="map-list" class="lobby-map-list" role="group" aria-label="Choose a surf map"></div><p id="map-empty" hidden>No maps match that search.</p></div>
           <aside id="featured-map" class="course-detail" aria-label="Selected map"><img id="lobby-preview" src="/previews/boreas.jpg" alt="Snowy ramps on surf_boreas" width="640" height="360" fetchpriority="high"><div class="detail-copy"><p class="menu-eyebrow">Selected course</p><h2 id="lobby-map-title">Boreas</h2><p id="lobby-map-credit">surf_boreas · by Syncronyze</p><p id="lobby-description">Snowy ravines, long glass ramps and high-speed transfers.</p><dl class="course-facts"><div><dt>Course</dt><dd id="lobby-checkpoints">Linear · 2 checkpoints</dd></div><div><dt>Difficulty</dt><dd id="lobby-tier">Unrated</dd></div><div><dt>Local best</dt><dd id="lobby-best">—</dd></div></dl></div></aside>
         </div>
         <footer class="browser-action"><div><span id="map-count">20 classic courses</span><p id="lobby-load-status" role="status">Preparing your last played map…</p></div><button id="join" class="button-primary">Join map <span aria-hidden="true">→</span></button></footer>
       </section>
-      <section id="play-online" class="play-page" role="tabpanel" aria-labelledby="play-tab-online">
+      <section id="play-online" class="play-page" role="tabpanel" aria-labelledby="play-tab-online" hidden style="display:none !important;">
         <div class="browser-toolbar"><div><strong>Find a server</strong><p>Join a few other surfers.</p></div><button id="servers-refresh">Refresh</button></div>
         <div class="server-directory"><table><thead><tr><th>Server</th><th>Map</th><th>Players</th><th>Ping</th></tr></thead><tbody id="server-list"></tbody></table></div>
         <div class="server-detail"><div><p class="menu-eyebrow">Community servers</p><h2 id="server-title">Choose a server</h2><p id="server-description">Pick a server and come surf. Choose the next map together, or stay a little longer on a favourite.</p></div><dl><div><dt>Movement</dt><dd>Normal · Auto bhop</dd></div><div><dt>Players</dt><dd>Non-colliding · Hide any time</dd></div><div><dt>Map duration</dt><dd id="server-time">30 minutes + extensions</dd></div></dl></div>
